@@ -1,0 +1,15 @@
+pandas
+numpy
+scikit-learn
+boto3
+sagemaker
+wandb
+pytest
+pylint
+fastapi
+uvicorn
+requests
+streamlit
+httpx
+matplotlib
+seaborn
