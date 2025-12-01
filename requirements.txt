@@ -2,7 +2,7 @@ pandas
 numpy
 scikit-learn
 boto3
-sagemaker
+sagemaker==2.232.0
 wandb
 pytest
 pylint
@@ -13,3 +13,5 @@ streamlit
 httpx
 matplotlib
 seaborn
+ipykernel
+joblib
