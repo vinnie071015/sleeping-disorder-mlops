@@ -1,5 +1,0 @@
-2025-11-30 15:21:10,363 INFO    MainThread:53635 [wandb_init.py:setup_run_log_directory():713] Logging user logs to /Users/zhengchengsheng/Desktop/sleeping_disorder_prediction/wandb/offline-run-20251130_152110-7wf5k58g/logs/debug.log
-2025-11-30 15:21:10,363 INFO    MainThread:53635 [wandb_init.py:setup_run_log_directory():714] Logging internal logs to /Users/zhengchengsheng/Desktop/sleeping_disorder_prediction/wandb/offline-run-20251130_152110-7wf5k58g/logs/debug-internal.log
-2025-11-30 15:21:10,363 INFO    MainThread:53635 [wandb_init.py:init():840] calling init triggers
-2025-11-30 15:21:10,363 INFO    MainThread:53635 [wandb_init.py:init():845] wandb.init called with sweep_config: {}
-config: {'train': '/private/var/folders/py/wsw9dv2n5g70rl8sm3pxxjg40000gn/T/pytest-of-zhengchengsheng/pytest-2/test_train_smoke_rf0/data', 'model_dir': '/private/var/folders/py/wsw9dv2n5g70rl8sm3pxxjg40000gn/T/pytest-of-zhengchengsheng/pytest-2/test_train_smoke_rf0/model', 'model_type': 'random_forest', 'C': 1.0, 'kernel': 'rbf', 'n_estimators': 2, 'max_depth': 10, '_wandb': {}}
