@@ -33,7 +33,7 @@ class DualLogger:
         try:
             with open(self.log_file_path, "a", encoding='utf-8') as f:
                 f.write(message)
-        except Exception:
+        except Exception as e:
             pass 
 
     def flush(self):
@@ -119,6 +119,15 @@ def perform_training(args):
     from sklearn.pipeline import Pipeline
     from sklearn.metrics import accuracy_score
     
+    # [W&B ADDITION] Try to import wandb safely
+    wandb_available = False
+    try:
+        import wandb
+        wandb_available = True
+        print("✅ [W&B] Library imported successfully.", flush=True)
+    except ImportError:
+        print("⚠️ [W&B] Library not found. Skipping W&B logging.", flush=True)
+
     # Dynamic import of src
     sys.path.append(os.getcwd())
     try:
@@ -154,6 +163,29 @@ def perform_training(args):
         ])
         model = get_model(m_args)
         return Pipeline(steps=[('preprocessor', preprocessor), ('classifier', model)])
+
+    # --------------------------------------------------------
+    # [W&B ADDITION] Initialize W&B Run
+    # --------------------------------------------------------
+    if wandb_available:
+        try:
+            # Clean model type for cleaner charts
+            clean_model_type = args.model_type.strip().replace('"', '')
+            
+            wandb.init(
+                project="sleep-disorder-mlops", # Replace with your project name if needed
+                config={
+                    "model_type": clean_model_type,
+                    "n_estimators": args.n_estimators,
+                    "C": args.C,
+                    "kernel": args.kernel,
+                    "full_args": vars(args)
+                }
+            )
+            print("✅ [W&B] Run initialized successfully.", flush=True)
+        except Exception as e:
+            print(f"⚠️ [W&B] Initialization failed (check API Key?): {e}", flush=True)
+            wandb_available = False # Disable subsequent logging if init fails
 
     # --------------------------------------------------------
     # Business Logic Start
@@ -207,6 +239,15 @@ def perform_training(args):
     # Evaluation and Saving
     print("\n--- 3. Evaluation & Saving ---", flush=True)
     acc = accuracy_score(y_test, pipeline.predict(X_test))
+    
+    # [W&B ADDITION] Log Metrics
+    if wandb_available:
+        try:
+            wandb.log({"accuracy": acc, "test_accuracy": acc})
+            print(f"✅ [W&B] Logged accuracy: {acc:.4f}", flush=True)
+        except Exception as e:
+            print(f"⚠️ [W&B] Logging failed: {e}", flush=True)
+
     # Using the exact format for SageMaker metric capture
     print(f"✅ Accuracy: {acc:.4f}", flush=True) 
 
@@ -217,6 +258,10 @@ def perform_training(args):
     joblib.dump(pipeline, os.path.join(args.model_dir, "model.joblib"))
     joblib.dump(le, os.path.join(args.model_dir, "label_encoder.joblib"))
     print(f"✅ FINAL: Model saved to {args.model_dir}", flush=True)
+    
+    # [W&B ADDITION] Finish Run
+    if wandb_available:
+        wandb.finish()
 
 
 # ==========================================
