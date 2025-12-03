@@ -25,8 +25,7 @@ class DualLogger:
         self.terminal = original_stream
         self.log_file_path = log_file_path
         # 初始化时，如果是 stdout 则不需要清空（避免双重清空），这里简单处理：追加模式
-        # 实际由外部控制文件初始化
-        
+    
     def write(self, message):
         # 1. 照常打印到控制台
         self.terminal.write(message)
@@ -58,25 +57,50 @@ def upload_logs_to_s3(local_path, bucket_name):
         sys.__stdout__.write(f"❌ [S3 Upload] Failed: {e}\n")
 
 # ==========================================
-# 1. 依赖安装 (在导入 ML 库之前执行)
+# 1. 依赖安装 (核弹级清理模式)
 # ==========================================
 def install_dependencies():
-    print("\n📦 [INIT] Start installing dependencies...", flush=True)
+    print("\n📦 [INIT] Start environment cleanup & installation...", flush=True)
+    
+    # --- 1. 先把容器自带的库全部卸载 (核弹清理) ---
+    # 这能避免 "Old Numpy" 和 "New Pandas" 打架
+    troublemakers = ["numpy", "pandas", "scikit-learn", "joblib"]
+    print(f"   aaa... Purging pre-installed libraries: {troublemakers}...", flush=True)
+    try:
+        # -y 表示自动确认，防止卡住
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y"] + troublemakers)
+        print("   ✅ Cleanup complete.", flush=True)
+    except Exception as e:
+        # 如果卸载失败（比如本来就没装），不要报错，继续往下走
+        print(f"   ⚠️ Cleanup warning (non-fatal): {e}", flush=True)
+
+    # --- 2. 升级 pip ---
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+    except:
+        pass
+
+    # --- 3. 重新安装指定版本 ---
+    # 既然已经卸载了，这里就是全新安装，不会有二进制冲突
     packages = [
-        "pandas",
-        "scikit-learn",
+        "numpy==1.26.4",  # 指定一个稳定的新版本
+        "pandas==2.2.0",
+        "scikit-learn==1.4.0",
         "matplotlib",
         "seaborn",
         "joblib",
         "wandb"
     ]
+    
     for package in packages:
         try:
-            print(f"   - Installing {package}...", flush=True)
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            cmd = [sys.executable, "-m", "pip", "install", package]
+            print(f"   - Installing new: {package} ...", flush=True)
+            subprocess.check_call(cmd)
         except Exception as e:
             print(f"   ⚠️ Warning: Failed to install {package}. Error: {e}", flush=True)
-    print("✅ [INIT] Dependencies installed.\n", flush=True)
+            
+    print("✅ [INIT] Fresh dependencies installed.\n", flush=True)
 
 # ==========================================
 # 2. 训练逻辑 (封装在函数中，避免全局导入报错)
@@ -105,7 +129,7 @@ def perform_training(args):
         print("✅ [IMPORT] src.data_processor loaded.", flush=True)
     except ImportError as e:
         print(f"❌ [IMPORT] Failed to import src.data_processor: {e}", flush=True)
-        # 继续尝试运行，或者在这里 raise
+        # 继续尝试运行，方便排查路径问题
     
     # --------------------------------------------------------
     # Helper Functions (内部定义)
@@ -129,15 +153,22 @@ def perform_training(args):
     # --------------------------------------------------------
     print("\n--- 1. Data Loading ---", flush=True)
     
-    # 如果本地测试没有 path，提供默认值防止报错
-    data_dir = args.train if args.train else "./data" 
+    # [FIX 3] 再次确认路径，确保非空
+    data_dir = args.train
+    print(f"DATA_DIAG: Target data directory: {data_dir}", flush=True)
+
+    if not data_dir:
+        raise ValueError("❌ Error: args.train is Empty! Check argparse defaults.")
+
     file_path = os.path.join(data_dir, "sleep_data.csv")
-    print(f"DATA_DIAG: Loading from {file_path}", flush=True)
+    print(f"DATA_DIAG: Full file path: {file_path}", flush=True)
 
     if not os.path.exists(file_path):
-        print(f"❌ [ERROR] File not found at {file_path}. Listing dir:", flush=True)
+        print(f"❌ [ERROR] File not found at {file_path}. Listing dir contents:", flush=True)
         if os.path.exists(data_dir):
             print(os.listdir(data_dir), flush=True)
+        else:
+            print(f"   Directory {data_dir} does not exist!", flush=True)
         raise FileNotFoundError(f"Data file missing: {file_path}")
 
     df = load_data(file_path)
@@ -170,7 +201,7 @@ def perform_training(args):
     # 评估与保存
     print("\n--- 3. Evaluation & Saving ---", flush=True)
     acc = accuracy_score(y_test, pipeline.predict(X_test))
-    print(f"RESULT: Accuracy: {acc:.4f}", flush=True)
+    print(f"✅ Accuracy: {acc:.4f}", flush=True) # 修改格式以匹配 Metric Regex
 
     # 保存
     if not os.path.exists(args.model_dir):
@@ -202,14 +233,20 @@ if __name__ == '__main__':
         parser.add_argument('--n_estimators', type=int, default=100)
         parser.add_argument('--C', type=float, default=1.0)
         parser.add_argument('--kernel', type=str, default='rbf')
-        # SageMaker 环境变量默认值
-        parser.add_argument('--train', type=str, default=os.environ.get('SM_CHANNEL_TRAINING'))
-        parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', '/tmp/model'))
+        
+        # [FIX 4] 增强的路径处理逻辑
+        # 优先读取环境变量，如果没有，默认为 '/opt/ml/input/data/train'
+        env_sm_channel = os.environ.get('SM_CHANNEL_TRAINING')
+        default_data_path = env_sm_channel if env_sm_channel else '/opt/ml/input/data/train'
+        
+        parser.add_argument('--train', type=str, default=default_data_path)
+        parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', '/opt/ml/model'))
         
         args, _ = parser.parse_known_args() # 使用 parse_known_args 容错性更好
 
         print(f"INFO: Arguments: {args}", flush=True)
-        print(f"INFO: Env SM_CHANNEL_TRAINING: {os.environ.get('SM_CHANNEL_TRAINING')}", flush=True)
+        print(f"INFO: Env SM_CHANNEL_TRAINING: {env_sm_channel}", flush=True)
+        print(f"INFO: Effective Data Path: {args.train}", flush=True)
 
         # 4. 执行安装和训练
         install_dependencies()
