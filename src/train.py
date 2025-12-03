@@ -1,239 +1,233 @@
-# """
-# SageMaker training script supporting 3 Course Models: LR, SVM, RF.
-# Includes verbose debugging and environment checks.
-# """
-# import argparse
-# import os
-# import sys
-# import joblib
-# import pandas as pd
-# import matplotlib.pyplot as plt
-# import seaborn as sns
-# from sklearn.model_selection import train_test_split
-# from sklearn.linear_model import LogisticRegression
-# from sklearn.svm import SVC
-# from sklearn.ensemble import RandomForestClassifier
-# from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
-# from sklearn.compose import ColumnTransformer
-# from sklearn.pipeline import Pipeline
-# from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
-
-# try:
-#     import wandb
-# except ImportError:
-#     wandb = None
-
-# from src.data_processor import load_data, clean_data # <--- 路径修复后的导入
-
-# # ... (parse_args, get_model, save_plot_confusion_matrix, perform_bias_audit 函数保持不变) ...
-
-# def create_pipeline(categorical_features, numerical_features, n_estimators=None, C=None, kernel=None, model_type=None):
-#     """
-#     构建 Scikit-learn Pipeline。
-#     (重构：将 Pipeline 逻辑移到函数中，方便主函数瘦身)
-#     """
-#     preprocessor = ColumnTransformer(
-#         transformers=[
-#             ('num', StandardScaler(), numerical_features),
-#             ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
-#         ]
-#     )
-
-#     model = get_model(argparse.Namespace(
-#         model_type=model_type, n_estimators=n_estimators, C=C, kernel=kernel))
-        
-#     return Pipeline(steps=[('preprocessor', preprocessor), ('classifier', model)])
-
-
-# def main():
-#     """主训练流程 (包含了详细的步骤打印)"""
-#     args = parse_args()
-#     # --------------------------------------------------------
-#     print("\n✅ SCRIPT START: SageMaker 容器环境已就绪，开始执行 train.py ...") # 👈 增加这个明确的信号
-#     # --------------------------------------------------------
-#     print("\n--- 1. 环境诊断与参数接收 (Receiving Instructions) ---")
-    
-#     # 打印关键 SageMaker 环境变量
-#     print(f"ENV_DIAG: SM_CHANNEL_TRAINING = {os.environ.get('SM_CHANNEL_TRAINING')}")
-#     print(f"ENV_DIAG: SM_MODEL_DIR = {os.environ.get('SM_MODEL_DIR')}")
-    
-#     # 修复 Python 模块导入路径 (重复执行确保安全)
-#     sys.path.append(os.getcwd()) 
-    
-#     print(f"PARAM_DIAG: Model Type: {args.model_type}, N_Estimators: {args.n_estimators}, C: {args.C}")
-#     print("--------------------------------------------------------")
-    
-    
-#     # --- 2. 数据加载与清洗 ---
-    
-#     # 确认数据在容器内的实际路径
-#     data_dir_path = args.train
-#     file_path = os.path.join(data_dir_path, "sleep_data.csv")
-    
-#     print(f"\n--- 2. Data Loading ---")
-#     print(f"DATA_DIAG: Attempting to load file from: {file_path}")
-    
-#     try:
-#         df = load_data(file_path)
-#         df = clean_data(df)
-#     except Exception as e:
-#         # 如果加载或清洗失败，打印自定义错误并退出
-#         print(f"❌ FATAL ERROR: Data loading/cleaning failed at runtime: {e}")
-#         sys.exit(1) # 强制退出，避免继续运行
-        
-
-#     # --- 3. 特征和目标准备 ---
-#     target_col = 'sleep_disorder'
-#     df[target_col] = df[target_col].fillna('None')
-    
-#     le = LabelEncoder()
-#     df[target_col] = le.fit_transform(df[target_col])
-    
-#     X = df.drop(columns=[target_col, 'person_id'])
-#     y = df[target_col]
-    
-#     print(f"DATA_DIAG: Final Feature Count: {len(X.columns)}")
-#     print(f"DATA_DIAG: Target Classes: {le.classes_}")
-    
-#     # --- 4. 训练与评估 ---
-#     print(f"\n--- 4. Model Training ---")
-    
-#     cat_features = X.select_dtypes(include=['object']).columns
-#     num_features = X.select_dtypes(include=['number']).columns
-
-#     # 组装 Pipeline (使用重构后的 create_pipeline 函数)
-#     pipeline = create_pipeline(
-#         cat_features, num_features, args.n_estimators, args.C, args.kernel, args.model_type
-#     )
-
-#     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-#     try:
-#         print("STATUS: Fitting model to data...")
-#         pipeline.fit(X_train, y_train)
-#         print("STATUS: Model fitting completed.")
-#     except Exception as e:
-#         print(f"❌ FATAL ERROR: Model fitting crashed: {e}")
-#         sys.exit(1)
-
-
-#     # --- 5. 产物生成与保存 ---
-#     print("\n--- 5. Artifacts Generation ---")
-#     y_pred = pipeline.predict(X_test)
-#     accuracy = accuracy_score(y_test, y_pred)
-    
-#     print(f"RESULT: Accuracy: {accuracy:.4f}")
-    
-#     # Audits & Plots
-#     save_plot_confusion_matrix(y_test, y_pred, args.model_dir)
-#     perform_bias_audit(X_test, y_test, y_pred)
-    
-#     # Save Model
-#     model_output_path = os.path.join(args.model_dir, "model.joblib")
-#     joblib.dump(pipeline, model_output_path)
-#     joblib.dump(le, os.path.join(args.model_dir, "label_encoder.joblib"))
-#     print(f"✅ FINAL STATUS: Model saved successfully to {args.model_dir}")
-
-
-# if __name__ == '__main__':
-#     main()
-
 import os
 import sys
+import argparse
+import datetime
+import traceback
 import subprocess
 import time
-import boto3
 
-# --- 配置部分 ---
-# 这里定义我们要“手动”安装的高风险库
-# 强烈建议锁定版本，以避免我们之前推测的兼容性问题
-RISKY_PACKAGES = [
-    "numpy==1.23.5",      # 锁定旧版本以兼容 SageMaker SKLearn 容器
-    "pandas==1.5.3",      # 锁定 1.x 版本
-    "scikit-learn==1.2.2" # 与容器版本匹配
-]
+# ==========================================
+# 0. 核心配置与日志组件
+# ==========================================
 
-# 获取任务名和区域
-JOB_NAME = os.environ.get('TRAINING_JOB_NAME', f'debug-job-{int(time.time())}')
-REGION = os.environ.get('AWS_REGION', 'us-east-1')
-# 尝试从环境变量获取 Bucket，如果没有则硬编码您的 Bucket
-BUCKET_NAME = 'sleep-disorder-mlops-bucket' 
+# ⚠️ 请确认你的 S3 桶名称
+LOG_BUCKET_NAME = 'sleep-disorder-mlops-bucket' 
+LOG_FILE_PATH = "/tmp/captured_log.txt"
 
-def upload_log_to_s3(content, filename_suffix):
-    """上传日志到 S3 的辅助函数"""
+class DualLogger:
+    """
+    拦截 sys.stdout 和 sys.stderr，
+    将内容同时输出到：
+    1. 控制台 (CloudWatch)
+    2. 本地文件 (/tmp/log.txt) -> 用于上传 S3
+    """
+    def __init__(self, original_stream, log_file_path):
+        self.terminal = original_stream
+        self.log_file_path = log_file_path
+        # 初始化时，如果是 stdout 则不需要清空（避免双重清空），这里简单处理：追加模式
+        # 实际由外部控制文件初始化
+        
+    def write(self, message):
+        # 1. 照常打印到控制台
+        self.terminal.write(message)
+        # 2. 追加写入文件
+        try:
+            with open(self.log_file_path, "a", encoding='utf-8') as f:
+                f.write(message)
+        except Exception:
+            pass 
+
+    def flush(self):
+        self.terminal.flush()
+
+def upload_logs_to_s3(local_path, bucket_name):
+    """尝试将日志文件上传到 S3"""
     try:
-        s3 = boto3.client('s3', region_name=REGION)
-        s3_key = f'sagemaker-logs/manual-install-debug/{JOB_NAME}/{filename_suffix}.txt'
-        s3.put_object(Bucket=BUCKET_NAME, Key=s3_key, Body=content.encode('utf-8'))
-        print(f"--- ✅ [S3 UPLOAD] 日志已上传: s3://{BUCKET_NAME}/{s3_key} ---")
-        return f"s3://{BUCKET_NAME}/{s3_key}"
+        import boto3 # 延迟导入，确保 boto3 可用
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        s3_key = f"debug_logs/train_failure_log_{timestamp}.txt"
+        
+        # 使用原生 stdout 打印，防止递归死循环
+        sys.__stdout__.write(f"\n[S3 Upload] Uploading logs to s3://{bucket_name}/{s3_key} ...\n")
+        
+        s3 = boto3.client('s3')
+        s3.upload_file(local_path, bucket_name, s3_key)
+        
+        sys.__stdout__.write(f"✅ [S3 Upload] Success! Log saved to S3.\n")
     except Exception as e:
-        print(f"--- ❌ [S3 ERROR] 上传失败: {e} ---")
-        return None
+        sys.__stdout__.write(f"❌ [S3 Upload] Failed: {e}\n")
 
-def install_risky_packages():
-    """在脚本内部手动运行 pip install"""
-    print(f"--- 🛠️ [INSTALL] 开始手动安装库: {RISKY_PACKAGES} ---")
-    
-    cmd = [sys.executable, "-m", "pip", "install"] + RISKY_PACKAGES
-    
-    # 执行命令并捕获所有输出
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True
-    )
-    
-    # 拼接完整日志
-    full_log = (
-        f"COMMAND: {' '.join(cmd)}\n"
-        f"RETURN CODE: {result.returncode}\n\n"
-        f"====== STDOUT ======\n{result.stdout}\n\n"
-        f"====== STDERR ======\n{result.stderr}\n"
-    )
-    
-    # 无论成功失败，都上传日志
-    if result.returncode == 0:
-        print("--- ✅ [INSTALL SUCCESS] 手动安装成功！---")
-        upload_log_to_s3(full_log, "install_success_log")
-        return True
-    else:
-        print("--- ❌ [INSTALL FAILED] 手动安装失败！---")
-        print(result.stderr[-500:]) # 打印最后500字符到控制台(如果有的话)
-        s3_path = upload_log_to_s3(full_log, "install_failure_log")
-        print(f"详细错误日志请查看 S3: {s3_path}")
-        return False
+# ==========================================
+# 1. 依赖安装 (在导入 ML 库之前执行)
+# ==========================================
+def install_dependencies():
+    print("\n📦 [INIT] Start installing dependencies...", flush=True)
+    packages = [
+        "pandas",
+        "scikit-learn",
+        "matplotlib",
+        "seaborn",
+        "joblib",
+        "wandb"
+    ]
+    for package in packages:
+        try:
+            print(f"   - Installing {package}...", flush=True)
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        except Exception as e:
+            print(f"   ⚠️ Warning: Failed to install {package}. Error: {e}", flush=True)
+    print("✅ [INIT] Dependencies installed.\n", flush=True)
 
-if __name__ == "__main__":
-    print("--- 🚀 [START] User script started. Safe dependencies loaded. ---")
+# ==========================================
+# 2. 训练逻辑 (封装在函数中，避免全局导入报错)
+# ==========================================
+def perform_training(args):
+    print("🔄 [IMPORT] Loading ML libraries...", flush=True)
     
-    # 1. 尝试安装高风险库
-    success = install_risky_packages()
+    # --- 这里的 Import 必须放在函数内部 ---
+    # 因为在 main() 运行 install_dependencies() 之前，这些包可能不存在
+    import joblib
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from sklearn.model_selection import train_test_split
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.svm import SVC
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import Pipeline
+    from sklearn.metrics import accuracy_score
     
-    if not success:
-        print("--- 💀 [ABORT] 核心库安装失败，脚本退出。 ---")
-        # 退出码 1 让 SageMaker 知道任务失败了
-        sys.exit(1)
-        
-    # 2. 如果安装成功，尝试导入测试
+    # 动态导入 src
+    sys.path.append(os.getcwd())
     try:
-        import numpy as np
-        import pandas as pd
-        import sklearn
-        print(f"--- ✅ [IMPORT TEST] Libraries imported successfully.")
-        print(f"Numpy: {np.__version__}, Pandas: {pd.__version__}, Sklearn: {sklearn.__version__}")
-        
-        # 上传一个最终的成功标志
-        upload_log_to_s3("All systems go! Environment is ready.", "final_success")
-        
+        from src.data_processor import load_data, clean_data
+        print("✅ [IMPORT] src.data_processor loaded.", flush=True)
     except ImportError as e:
-        error_msg = f"Install reported success, but IMPORT failed: {e}"
-        print(error_msg)
-        upload_log_to_s3(error_msg, "import_error_log")
-        sys.exit(1)
+        print(f"❌ [IMPORT] Failed to import src.data_processor: {e}", flush=True)
+        # 继续尝试运行，或者在这里 raise
+    
+    # --------------------------------------------------------
+    # Helper Functions (内部定义)
+    # --------------------------------------------------------
+    def get_model(model_args):
+        if model_args.model_type == 'lr': return LogisticRegression(C=model_args.C)
+        elif model_args.model_type == 'svm': return SVC(C=model_args.C, kernel=model_args.kernel)
+        elif model_args.model_type == 'rf': return RandomForestClassifier(n_estimators=model_args.n_estimators)
+        else: raise ValueError(f"Unknown model type: {model_args.model_type}")
 
-    # 3. 模拟极简训练
-    print("--- ⏳ [TRAINING] Simulating training loop... ---")
-    time.sleep(5)
-    print("✅ Accuracy: 0.99")
-    print("--- ✅ [DONE] Script finished. ---")
+    def create_pipeline(cat_cols, num_cols, m_args):
+        preprocessor = ColumnTransformer(transformers=[
+            ('num', StandardScaler(), num_cols),
+            ('cat', OneHotEncoder(handle_unknown='ignore'), cat_cols)
+        ])
+        model = get_model(m_args)
+        return Pipeline(steps=[('preprocessor', preprocessor), ('classifier', model)])
+
+    # --------------------------------------------------------
+    # 业务逻辑 Start
+    # --------------------------------------------------------
+    print("\n--- 1. Data Loading ---", flush=True)
+    
+    # 如果本地测试没有 path，提供默认值防止报错
+    data_dir = args.train if args.train else "./data" 
+    file_path = os.path.join(data_dir, "sleep_data.csv")
+    print(f"DATA_DIAG: Loading from {file_path}", flush=True)
+
+    if not os.path.exists(file_path):
+        print(f"❌ [ERROR] File not found at {file_path}. Listing dir:", flush=True)
+        if os.path.exists(data_dir):
+            print(os.listdir(data_dir), flush=True)
+        raise FileNotFoundError(f"Data file missing: {file_path}")
+
+    df = load_data(file_path)
+    df = clean_data(df)
+    print(f"DATA_DIAG: Data Loaded. Shape: {df.shape}", flush=True)
+
+    # 特征处理
+    target_col = 'sleep_disorder'
+    if target_col not in df.columns:
+        raise ValueError(f"Target {target_col} missing.")
+
+    df[target_col] = df[target_col].fillna('None')
+    le = LabelEncoder()
+    df[target_col] = le.fit_transform(df[target_col])
+    
+    X = df.drop(columns=[target_col, 'person_id'], errors='ignore')
+    y = df[target_col]
+    
+    # 训练
+    print("\n--- 2. Training ---", flush=True)
+    cat_features = X.select_dtypes(include=['object']).columns
+    num_features = X.select_dtypes(include=['number']).columns
+    
+    pipeline = create_pipeline(cat_features, num_features, args)
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    pipeline.fit(X_train, y_train)
+    print("STATUS: Model fitting completed.", flush=True)
+
+    # 评估与保存
+    print("\n--- 3. Evaluation & Saving ---", flush=True)
+    acc = accuracy_score(y_test, pipeline.predict(X_test))
+    print(f"RESULT: Accuracy: {acc:.4f}", flush=True)
+
+    # 保存
+    if not os.path.exists(args.model_dir):
+        os.makedirs(args.model_dir)
+        
+    joblib.dump(pipeline, os.path.join(args.model_dir, "model.joblib"))
+    joblib.dump(le, os.path.join(args.model_dir, "label_encoder.joblib"))
+    print(f"✅ FINAL: Model saved to {args.model_dir}", flush=True)
+
+
+# ==========================================
+# 3. 主入口 (包含日志劫持)
+# ==========================================
+if __name__ == '__main__':
+    # 1. 初始化日志文件
+    with open(LOG_FILE_PATH, "w", encoding='utf-8') as f:
+        f.write(f"=== TRAINING SESSION STARTED: {datetime.datetime.now()} ===\n")
+
+    # 2. 劫持输出
+    sys.stdout = DualLogger(sys.stdout, LOG_FILE_PATH)
+    sys.stderr = DualLogger(sys.stderr, LOG_FILE_PATH)
+
+    print("--- 🚀 SCRIPT START ---", flush=True)
+    
+    try:
+        # 3. 解析参数
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--model_type', type=str, default='svm')
+        parser.add_argument('--n_estimators', type=int, default=100)
+        parser.add_argument('--C', type=float, default=1.0)
+        parser.add_argument('--kernel', type=str, default='rbf')
+        # SageMaker 环境变量默认值
+        parser.add_argument('--train', type=str, default=os.environ.get('SM_CHANNEL_TRAINING'))
+        parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', '/tmp/model'))
+        
+        args, _ = parser.parse_known_args() # 使用 parse_known_args 容错性更好
+
+        print(f"INFO: Arguments: {args}", flush=True)
+        print(f"INFO: Env SM_CHANNEL_TRAINING: {os.environ.get('SM_CHANNEL_TRAINING')}", flush=True)
+
+        # 4. 执行安装和训练
+        install_dependencies()
+        perform_training(args)
+
+    except Exception:
+        # 5. 捕获一切崩溃
+        print("\n❌ CRASH DETECTED! Printing Traceback:", flush=True)
+        traceback.print_exc()
+        # 此时 sys.stderr 也是 DualLogger，所以 traceback 也会写入文件
+        
+    finally:
+        # 6. 最终上传日志
+        print("\n--- 🏁 SCRIPT FINISHING ---", flush=True)
+        print("INFO: Initiating log upload procedure...", flush=True)
+        
+        # 恢复标准输出，确保 boto3 不受干扰
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        
+        upload_logs_to_s3(LOG_FILE_PATH, LOG_BUCKET_NAME)
