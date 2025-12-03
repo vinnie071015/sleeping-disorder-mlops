@@ -1,3 +1,11 @@
-pandas
-numpy
-scikit-learn
+# --- MLOps/Logging ---
+wandb
+
+# --- Web/API Stack ---
+fastapi
+uvicorn
+requests
+httpx
+matplotlib
+seaborn
+joblib
