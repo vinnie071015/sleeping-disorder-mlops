@@ -141,30 +141,70 @@
 import argparse
 import os
 import time
+import subprocess
+import sys
 
-if __name__ == "__main__":
-    
-    # 强制打印，确认脚本已开始执行 (这应该是 CloudWatch 中的第一条日志)
+# 导入您创建的辅助脚本
+try:
+    # SageMaker 会将 Git 仓库内容放在 /opt/ml/code/ 下
+    # s3_log_uploader.py 位于根目录，src/train.py 位于 src/，所以路径是 ../s3_log_uploader
+    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    from s3_log_uploader import upload_log_to_s3
+except Exception:
+    # 如果导入失败，则无法上传日志
+    def upload_log_to_s3(content, name):
+        print("--- ⚠️ [S3 LOG IMPORT FAILED] S3 日志功能禁用。---")
+        pass
+
+
+def run_training():
+    # 获取任务名，用于 S3 路径
+    job_name = os.environ.get('TRAINING_JOB_NAME', f'local-test-job-{time.strftime("%H%M%S")}')
+
+    # ----------------------------------------------------
+    # 1. 模拟执行 pip install -r requirements.txt
+    # ----------------------------------------------------
+    print("--- 🔍 [TEST] 尝试执行 pip install ---")
+
+    # 路径指向 Git 仓库根目录下的 requirements.txt
+    requirements_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../requirements.txt')
+
+    if os.path.exists(requirements_path):
+        try:
+            # 运行 pip install 并捕获 stdout/stderr
+            process = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
+                capture_output=True,
+                text=True,
+                timeout=300, # 给予 5 分钟安装时间
+                check=True  # 如果安装失败，抛出 CalledProcessError
+            )
+            print("--- ✅ [PIP SUCCESS] 依赖安装成功。---")
+
+        except subprocess.CalledProcessError as e:
+            # 捕获错误并上传 S3
+            error_log = f"*** PIP INSTALL FAILED ***\nSTDOUT:\n{e.stdout}\n\nSTDERR:\n{e.stderr}"
+            s3_path = upload_log_to_s3(error_log, job_name)
+
+            print(f"--- ❌ [FATAL ERROR] PIP 安装失败，请检查 S3 日志: {s3_path} ---")
+
+            # 必须调用 sys.exit(1) 才能让 SageMaker 标记为 Failed
+            sys.exit(1) 
+
+        except Exception as e:
+            # 处理其他异常，如超时
+            error_log = f"*** GENERAL ERROR DURING PIP INSTALL ***\n{e}"
+            upload_log_to_s3(error_log, job_name)
+            print(f"--- ❌ [FATAL ERROR] 运行异常: {e} ---")
+            sys.exit(1)
+
+    else:
+        print("--- ⚠️ [WARN] requirements.txt 文件未找到，跳过安装。---")
+
+    # ----------------------------------------------------
+    # 2. 极简训练逻辑 (如果依赖安装成功，才会执行到这里)
+    # ----------------------------------------------------
     print("--- ✅ [START] 用户脚本开始执行，基础环境测试成功 ---")
-    
-    # 模拟接收超参数
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_type", type=str, default='simple_test')
-    args = parser.parse_args()
-
-    # 打印参数
-    print(f"--- 🔑 [TEST] 接收到超参数: model_type={args.model_type} ---")
-    
-    # 模拟数据加载路径检查
-    data_path = os.environ.get("SM_CHANNEL_TRAIN", "Path_Not_Found")
-    print(f"--- 💾 [TEST] 数据通道路径: {data_path} ---")
-
-    # 模拟任务运行，休眠 10 秒，确保日志有时间写入 CloudWatch
-    print("--- ⏳ [TEST] 模拟训练中，休眠 10 秒... ---")
     time.sleep(10)
-
-    # 打印指标，模拟任务成功
     print("✅ Accuracy: 0.99")
-    print("✅ F1 Score: 0.99")
-
     print("--- ✅ [END] 脚本成功完成 ---")
