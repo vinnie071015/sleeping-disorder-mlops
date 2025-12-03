@@ -138,73 +138,102 @@
 # if __name__ == '__main__':
 #     main()
 
-import argparse
 import os
-import time
-import subprocess
 import sys
+import subprocess
+import time
+import boto3
 
-# 导入您创建的辅助脚本
-try:
-    # SageMaker 会将 Git 仓库内容放在 /opt/ml/code/ 下
-    # s3_log_uploader.py 位于根目录，src/train.py 位于 src/，所以路径是 ../s3_log_uploader
-    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-    from s3_log_uploader import upload_log_to_s3
-except Exception:
-    # 如果导入失败，则无法上传日志
-    def upload_log_to_s3(content, name):
-        print("--- ⚠️ [S3 LOG IMPORT FAILED] S3 日志功能禁用。---")
-        pass
+# --- 配置部分 ---
+# 这里定义我们要“手动”安装的高风险库
+# 强烈建议锁定版本，以避免我们之前推测的兼容性问题
+RISKY_PACKAGES = [
+    "numpy==1.23.5",      # 锁定旧版本以兼容 SageMaker SKLearn 容器
+    "pandas==1.5.3",      # 锁定 1.x 版本
+    "scikit-learn==1.2.2" # 与容器版本匹配
+]
 
+# 获取任务名和区域
+JOB_NAME = os.environ.get('TRAINING_JOB_NAME', f'debug-job-{int(time.time())}')
+REGION = os.environ.get('AWS_REGION', 'us-east-1')
+# 尝试从环境变量获取 Bucket，如果没有则硬编码您的 Bucket
+BUCKET_NAME = 'sleep-disorder-mlops-bucket' 
 
-def run_training():
-    # 获取任务名，用于 S3 路径
-    job_name = os.environ.get('TRAINING_JOB_NAME', f'local-test-job-{time.strftime("%H%M%S")}')
+def upload_log_to_s3(content, filename_suffix):
+    """上传日志到 S3 的辅助函数"""
+    try:
+        s3 = boto3.client('s3', region_name=REGION)
+        s3_key = f'sagemaker-logs/manual-install-debug/{JOB_NAME}/{filename_suffix}.txt'
+        s3.put_object(Bucket=BUCKET_NAME, Key=s3_key, Body=content.encode('utf-8'))
+        print(f"--- ✅ [S3 UPLOAD] 日志已上传: s3://{BUCKET_NAME}/{s3_key} ---")
+        return f"s3://{BUCKET_NAME}/{s3_key}"
+    except Exception as e:
+        print(f"--- ❌ [S3 ERROR] 上传失败: {e} ---")
+        return None
 
-    # ----------------------------------------------------
-    # 1. 模拟执行 pip install -r requirements.txt
-    # ----------------------------------------------------
-    print("--- 🔍 [TEST] 尝试执行 pip install ---")
-
-    # 路径指向 Git 仓库根目录下的 requirements.txt
-    requirements_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../requirements.txt')
-
-    if os.path.exists(requirements_path):
-        try:
-            # 运行 pip install 并捕获 stdout/stderr
-            process = subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
-                capture_output=True,
-                text=True,
-                timeout=300, # 给予 5 分钟安装时间
-                check=True  # 如果安装失败，抛出 CalledProcessError
-            )
-            print("--- ✅ [PIP SUCCESS] 依赖安装成功。---")
-
-        except subprocess.CalledProcessError as e:
-            # 捕获错误并上传 S3
-            error_log = f"*** PIP INSTALL FAILED ***\nSTDOUT:\n{e.stdout}\n\nSTDERR:\n{e.stderr}"
-            s3_path = upload_log_to_s3(error_log, job_name)
-
-            print(f"--- ❌ [FATAL ERROR] PIP 安装失败，请检查 S3 日志: {s3_path} ---")
-
-            # 必须调用 sys.exit(1) 才能让 SageMaker 标记为 Failed
-            sys.exit(1) 
-
-        except Exception as e:
-            # 处理其他异常，如超时
-            error_log = f"*** GENERAL ERROR DURING PIP INSTALL ***\n{e}"
-            upload_log_to_s3(error_log, job_name)
-            print(f"--- ❌ [FATAL ERROR] 运行异常: {e} ---")
-            sys.exit(1)
-
+def install_risky_packages():
+    """在脚本内部手动运行 pip install"""
+    print(f"--- 🛠️ [INSTALL] 开始手动安装库: {RISKY_PACKAGES} ---")
+    
+    cmd = [sys.executable, "-m", "pip", "install"] + RISKY_PACKAGES
+    
+    # 执行命令并捕获所有输出
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True
+    )
+    
+    # 拼接完整日志
+    full_log = (
+        f"COMMAND: {' '.join(cmd)}\n"
+        f"RETURN CODE: {result.returncode}\n\n"
+        f"====== STDOUT ======\n{result.stdout}\n\n"
+        f"====== STDERR ======\n{result.stderr}\n"
+    )
+    
+    # 无论成功失败，都上传日志
+    if result.returncode == 0:
+        print("--- ✅ [INSTALL SUCCESS] 手动安装成功！---")
+        upload_log_to_s3(full_log, "install_success_log")
+        return True
     else:
-        print("--- ⚠️ [WARN] requirements.txt 文件未找到，跳过安装。---")
+        print("--- ❌ [INSTALL FAILED] 手动安装失败！---")
+        print(result.stderr[-500:]) # 打印最后500字符到控制台(如果有的话)
+        s3_path = upload_log_to_s3(full_log, "install_failure_log")
+        print(f"详细错误日志请查看 S3: {s3_path}")
+        return False
 
-    # ----------------------------------------------------
-    # 2. 极简训练逻辑 (如果依赖安装成功，才会执行到这里)
-    # ----------------------------------------------------
-    print("--- ✅ [START] 用户脚本开始执行，基础环境测试成功 ---")
-    time.sleep(10)
+if __name__ == "__main__":
+    print("--- 🚀 [START] User script started. Safe dependencies loaded. ---")
+    
+    # 1. 尝试安装高风险库
+    success = install_risky_packages()
+    
+    if not success:
+        print("--- 💀 [ABORT] 核心库安装失败，脚本退出。 ---")
+        # 退出码 1 让 SageMaker 知道任务失败了
+        sys.exit(1)
+        
+    # 2. 如果安装成功，尝试导入测试
+    try:
+        import numpy as np
+        import pandas as pd
+        import sklearn
+        print(f"--- ✅ [IMPORT TEST] Libraries imported successfully.")
+        print(f"Numpy: {np.__version__}, Pandas: {pd.__version__}, Sklearn: {sklearn.__version__}")
+        
+        # 上传一个最终的成功标志
+        upload_log_to_s3("All systems go! Environment is ready.", "final_success")
+        
+    except ImportError as e:
+        error_msg = f"Install reported success, but IMPORT failed: {e}"
+        print(error_msg)
+        upload_log_to_s3(error_msg, "import_error_log")
+        sys.exit(1)
+
+    # 3. 模拟极简训练
+    print("--- ⏳ [TRAINING] Simulating training loop... ---")
+    time.sleep(5)
     print("✅ Accuracy: 0.99")
-    print("--- ✅ [END] 脚本成功完成 ---")
+    print("--- ✅ [DONE] Script finished. ---")
