@@ -1,0 +1,13 @@
+{
+  "gender": "Male",
+  "age": 32,
+  "occupation": "Software Engineer",
+  "sleep_duration": 7.5,
+  "quality_of_sleep": 8,
+  "physical_activity_level": 60,
+  "stress_level": 5,
+  "bmi_category": "Normal",
+  "blood_pressure": "120/80",
+  "heart_rate": 70,
+  "daily_steps": 4000
+}

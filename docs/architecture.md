@@ -1,3 +1,6 @@
+
+
+
 ## 0. 协作与文档原则 (Collaboration Principle)
 
 > 💡 **关键指令：** 在审查本文件或提供反馈时，如果对任何信息、状态或架构决策有疑问，请**务必提出疑问以寻求更多信息**。我们优先保证清晰度与准确性。
@@ -66,13 +69,14 @@ graph TD
 
 <!-- DEPLOYMENT_STATUS_START -->
 
-_最后一次运行时间: 2025-12-04 12:38:46_
+_最后一次运行时间: 2025-12-04 13:36:20_
 
 | 组件 (Component) | 状态 (Status) | 详情 (Details) |
 | :--- | :--- | :--- |
 | **S3 Storage** | ✅ Success | Bucket: `sleep-disorder-mlops-bucket` |
-| **SageMaker Endpoint** | ✅ Success | Name: `sleep-disorder-svm-prod-v1` |
-| **API Gateway** | ✅ Success | URL: `https://xyz123.execute-api.us-east-1.amazonaws.com/prod/predict` |
+| **SageMaker Endpoint** | ❓ Failed (AWS Error: ValidationException) | Name: `sleep-disorder-svm-prod-v1` |
+| **Lambda Function** | ❓ Failed (AWS Error: AccessDeniedException) | Name: `your-sleep-predictor-lambda-name` |
+| **API Gateway** | ❓ Failed (AWS Error: AccessDeniedException) | ID: `abcdefg123` |
 | **Frontend App** | ⏳ Pending | Local: `http://localhost:8501` |
 
 <!-- DEPLOYMENT_STATUS_END -->
