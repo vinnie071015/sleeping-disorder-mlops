@@ -2,11 +2,10 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [ "main" ]  # 当代码推送到 main 分支时触发
-  workflow_dispatch:      # 允许手动点击按钮触发
+    branches: [ "main" ]
+  workflow_dispatch:
 
 env:
-  # 根据您的 Notebook 检查结果配置
   AWS_REGION: us-east-1
   ECR_REPOSITORY: sleep-predictor
   CONTAINER_NAME: sleep_app_container
@@ -23,7 +22,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # --- 阶段 2: 配置 AWS 权限 (用于构建镜像) ---
+    # --- 阶段 2: 配置 AWS 权限 ---
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
@@ -35,20 +34,31 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
-    # --- 阶段 3: 构建并推送 Docker 镜像 ---
-    - name: Build and Push Docker Image
+    # --- 阶段 3 (新): 清理 ECR 并推送新镜像 ---
+    - name: Clean ECR & Build Push Image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
-        echo "正在构建镜像..."
-        # ⚠️ 关键：使用 --platform linux/amd64 以适配您的 EC2 (x86_64)
+        echo "🧹 正在清理 ECR 中的旧镜像..."
+        # 获取所有没有 tag 的镜像 (untagged) 并删除
+        aws ecr list-images --repository-name $ECR_REPOSITORY --filter tagStatus=UNTAGGED --query 'imageIds[*]' --output json | \
+        jq -r '.[].imageDigest' | while read digest; do
+          if [ "$digest" != "null" ]; then
+            aws ecr batch-delete-image --repository-name $ECR_REPOSITORY --image-ids imageDigest=$digest || true
+          fi
+        done
+        
+        # (可选) 如果想更激进，只保留 latest，可以编写脚本删除除 latest 外的所有 tag。
+        # 但为了回滚安全，通常建议保留最近几个。上面的逻辑主要清理悬空(untagged)镜像。
+
+        echo "🏗️ 正在构建新镜像..."
         docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f docker/Dockerfile .
         
-        echo "打标签为 latest..."
+        echo "🏷️ 打标签为 latest..."
         docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
-        echo "推送到 ECR..."
+        echo "🚀 推送到 ECR..."
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
@@ -64,34 +74,40 @@ jobs:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
-        # 将环境变量传递给 SSH 脚本
         envs: ECR_REGISTRY,ECR_REPOSITORY,AWS_REGION,CONTAINER_NAME
         script: |
           echo "Connected to EC2!"
           
-          # 1. 在 EC2 内部登录 ECR 
-          # (利用 EC2 绑定的 IAM Role，不需要显式 AK/SK)
+          # 1. 登录 ECR
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
           
-          # 2. 拉取最新镜像
-          echo "Pulling latest image..."
+          # --- 关键逻辑：彻底清理环境 ---
+          echo "🛑 1. 停止并删除旧容器..."
+          docker stop $CONTAINER_NAME 2>/dev/null || true
+          docker rm $CONTAINER_NAME 2>/dev/null || true
+          
+          echo "🧹 2. 检查 8000 端口占用..."
+          # 查找占用 8000 端口的进程 PID，如果有则杀死
+          PID=$(sudo lsof -t -i:8000)
+          if [ -n "$PID" ]; then
+            echo "发现端口 8000 被进程 $PID 占用，正在强制结束..."
+            sudo kill -9 $PID
+          else
+            echo "端口 8000 干净可用。"
+          fi
+          
+          # --- 部署新环境 ---
+          echo "⬇️ 3. 拉取最新镜像..."
           docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
           
-          # 3. 停止旧容器 (如果存在)
-          echo "Stopping old container..."
-          docker stop $CONTAINER_NAME || true
-          docker rm $CONTAINER_NAME || true
-          
-          # 4. 启动新容器
-          echo "Starting new container..."
-          # -p 80:8000 -> 将 EC2 的 80 端口映射到容器的 8000 端口
-          # 这样同学直接访问 http://IP 即可，不用加端口号
+          echo "▶️ 4. 启动新容器..."
           docker run -d \
             --restart always \
             -p 8000:8000 \
             --name $CONTAINER_NAME \
             $ECR_REGISTRY/$ECR_REPOSITORY:latest
             
-          echo "✅ Deployment successful!"
-          # 清理未使用的旧镜像以节省磁盘空间
+          echo "🗑️ 5. 清理 EC2 上的旧镜像 (dangling images)..."
           docker image prune -f
+          
+          echo "✅ 部署完成！"
