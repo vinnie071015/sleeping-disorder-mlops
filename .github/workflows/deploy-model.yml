@@ -52,21 +52,22 @@ jobs:
         # 将构建好的完整镜像地址写入环境变量，供下一步使用
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
-    - name: Create SageMaker Model
+    - name: Create SageMaker Model (Test with Public Image)
       run: |
-        # 动态生成唯一的模型名称：前缀-时间戳-短CommitID
-        # 例如: sleep-svm-ci-20251205-1230-a1b2c3d
+        # 动态生成唯一的模型名称
         TIMESTAMP=$(date +%Y%m%d-%H%M)
         SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-        UNIQUE_MODEL_NAME="sleep-svm-ci-${TIMESTAMP}-${SHORT_SHA}"
+        UNIQUE_MODEL_NAME="test-public-image-${TIMESTAMP}-${SHORT_SHA}"
         
-        echo "Creating SageMaker Model with name: $UNIQUE_MODEL_NAME"
-        echo "Image: ${{ env.image }}"
+        # 🚨 注意：这里硬编码了公共镜像 URI 进行测试
+        TEST_IMAGE_URI="public.ecr.aws/lts/pytorch/pytorch:1.13.1-cpu-py39"
+
+        echo "Creating SageMaker Model with Public Image: $TEST_IMAGE_URI"
         
         aws sagemaker create-model \
           --model-name $UNIQUE_MODEL_NAME \
           --execution-role-arn ${{ env.SAGEMAKER_ROLE }} \
-          --primary-container Image=${{ env.image }},ModelDataUrl=${{ env.MODEL_DATA_URL }} \
+          --primary-container Image=$TEST_IMAGE_URI,ModelDataUrl=${{ env.MODEL_DATA_URL }} \
           --region ${{ secrets.AWS_REGION }}
           
         echo "✅ Model created successfully: $UNIQUE_MODEL_NAME"
