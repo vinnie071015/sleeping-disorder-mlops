@@ -69,19 +69,33 @@ if predict_btn:
             
             if response.status_code == 200:
                 result = response.json()
-                prediction = result.get("prediction", "Unknown")
+                # 获取原始预测值 (Insomnia / Sleep Apnea / Missing)
+                raw_prediction = result.get("prediction", "Unknown")
+                
+                # --- 修改逻辑：文案映射 ---
+                # 如果是 Missing 或 None，显示为 "Healthy"
+                if raw_prediction == "Missing" or raw_prediction == "None":
+                    display_text = "Healthy (No Disorder Detected)"
+                    display_color = "green"
+                else:
+                    display_text = raw_prediction
+                    display_color = "red"
                 
                 st.success("✅ Prediction Complete!")
                 
-                # Display Results
-                st.subheader(f"Diagnostic Result: {prediction}")
+                # 使用自定义颜色的标题展示结果
+                st.subheader(f"Diagnostic Result: :{display_color}[{display_text}]")
                 
-                if prediction == "None":
-                    st.info("Congratulations! No significant sleep disorder risk detected. Keep up the healthy lifestyle! (Source: Model)")
-                elif prediction == "Insomnia":
-                    st.warning("⚠️ Warning: Risk of Insomnia detected. It is recommended to consult a doctor or improve your sleep schedule.")
-                elif prediction == "Sleep Apnea":
-                    st.error("🚨 Warning: Risk of Sleep Apnea detected. Please seek medical attention as soon as possible.")
+                # --- 详细建议 ---
+                if raw_prediction == "Missing" or raw_prediction == "None":
+                    st.info("Congratulations! No significant sleep disorder risk detected. Keep up the healthy lifestyle!")
+                elif raw_prediction == "Insomnia":
+                    st.warning("⚠️ Warning: Risk of **Insomnia** detected. It is recommended to consult a doctor or improve your sleep schedule.")
+                elif raw_prediction == "Sleep Apnea":
+                    st.error("🚨 Warning: Risk of **Sleep Apnea** detected. Please seek medical attention as soon as possible.")
+                else:
+                    st.write(f"Raw Prediction: {raw_prediction}")
+
             else:
                 st.error(f"❌ Prediction Failed: {response.text}")
                 
