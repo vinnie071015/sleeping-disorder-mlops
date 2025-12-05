@@ -2,16 +2,14 @@ name: Build and Deploy to SageMaker
 
 on:
   push:
-    branches: [ "main" ]  # 或者是 master，取决于你的主分支名字
-  workflow_dispatch:      # 允许手动点击按钮触发
+    branches: [ "main" ]
+  workflow_dispatch:
 
 env:
   ECR_REPOSITORY: sleep-predictor
   SAGEMAKER_ROLE: arn:aws:iam::137568342316:role/SageMakerExecutionRole
-  # 注意：这里暂时硬编码了你之前提供的那个 S3 模型路径，
-  # 在实际 MLOps 流程中，这个路径通常是动态获取的，但为了验证 create-model，先写死。
+  # 硬编码的模型数据路径 (仅供测试)
   MODEL_DATA_URL: s3://sleep-disorder-mlops-bucket/sagemaker-tuning-output/svm-tuning-251203-2103-002-c8ccdacc/output/model.tar.gz
-  MODEL_NAME: sleep-disorder-svm-model-ci-v1  # 给它一个新的名字以免冲突
 
 jobs:
   deploy:
@@ -38,24 +36,37 @@ jobs:
     - name: Build, tag, and push image to Amazon ECR
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: v4-ci  # 使用一个新的 tag 区分 CI 构建的版本
+        # 使用 git commit sha 作为 tag，保证唯一性和可追溯性
+        IMAGE_TAG: ${{ github.sha }} 
       run: |
-        # 显式构建 x86_64 镜像
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        echo "Building docker image..."
+        # 优化点：
+        # 1. -f docker/Dockerfile : 指定文件位置
+        # 2. --platform linux/amd64 : 确保兼容 SageMaker 运行环境
+        # 3. . : 保持 Context 为项目根目录
+        docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f docker/Dockerfile .
+        
+        echo "Pushing image to ECR..."
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        
+        # 将构建好的完整镜像地址写入环境变量，供下一步使用
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
     - name: Create SageMaker Model
       run: |
-        echo "Creating SageMaker Model..."
-        echo "Image: ${{ env.image }}"
-        echo "Role: ${{ env.SAGEMAKER_ROLE }}"
+        # 动态生成唯一的模型名称：前缀-时间戳-短CommitID
+        # 例如: sleep-svm-ci-20251205-1230-a1b2c3d
+        TIMESTAMP=$(date +%Y%m%d-%H%M)
+        SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+        UNIQUE_MODEL_NAME="sleep-svm-ci-${TIMESTAMP}-${SHORT_SHA}"
         
-        # 运行 create-model 命令
+        echo "Creating SageMaker Model with name: $UNIQUE_MODEL_NAME"
+        echo "Image: ${{ env.image }}"
+        
         aws sagemaker create-model \
-          --model-name ${{ env.MODEL_NAME }} \
+          --model-name $UNIQUE_MODEL_NAME \
           --execution-role-arn ${{ env.SAGEMAKER_ROLE }} \
           --primary-container Image=${{ env.image }},ModelDataUrl=${{ env.MODEL_DATA_URL }} \
           --region ${{ secrets.AWS_REGION }}
           
-        echo "✅ Model created successfully!"
+        echo "✅ Model created successfully: $UNIQUE_MODEL_NAME"
