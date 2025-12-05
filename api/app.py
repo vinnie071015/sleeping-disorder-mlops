@@ -41,26 +41,31 @@ def load_artifacts():
     le_path = os.path.join(MODEL_DIR, LE_FILENAME)
     
     try:
+        # 尝试从 SageMaker 标准路径加载 (本地测试时会失败，但 CI/CD 部署到 SageMaker/EC2 时可能有用)
         model_pipeline = joblib.load(model_path)
         label_encoder = joblib.load(le_path)
-        print("✅ 模型和编码器加载成功 (SageMaker 路径)")
+        print("✅ 模型和编码器加载成功 (路径 1: MODEL_DIR)")
+        return
     except Exception as e:
-        # 如果从 /opt/ml/model 加载失败 (本地测试时会失败)
-        print(f"❌ 模型加载失败 (SageMaker 路径): {e}")
+        print(f"❌ 模型加载失败 (路径 1: MODEL_DIR): {e}")
 
-        # 添加一个可靠的本地测试路径（使用你的文件树结构）
-        try:
-            # 你的模型文件在根目录下的 notebooks/best_model_extracted/
-            base_path = "notebooks/best_model_extracted/" 
-            
-            # 注意：这里不需要 '..'，因为构建上下文的根目录就是项目根目录
-            model_pipeline = joblib.load(os.path.join(base_path, "model.joblib"))
-            label_encoder = joblib.load(os.path.join(base_path, "label_encoder.joblib"))
-            print("✅ 模型加载成功 (本地路径)")
-        except Exception as e2:
-            print(f"❌ 本地路径也加载失败: {e2}")
-            # 如果本地和 SageMaker 路径都失败，抛出错误
-            raise RuntimeError(f"无法加载模型，启动失败: {e2}")
+    # --------------------------------------------------------------------------
+    # ⚠️ FIX: 尝试从容器内部的绝对路径加载 (当使用 Docker run 时，模型在此处)
+    # --------------------------------------------------------------------------
+    try:
+        # 绝对路径: 从容器的根目录 /app 开始，匹配 Dockerfile 的 COPY 目标
+        # 路径为： /app/notebooks/best_model_extracted/
+        base_path = "/app/notebooks/best_model_extracted" 
+        
+        model_pipeline = joblib.load(os.path.join(base_path, "model.joblib"))
+        label_encoder = joblib.load(os.path.join(base_path, "label_encoder.joblib"))
+        print("✅ 模型加载成功 (路径 2: 容器绝对路径)")
+        return
+    except Exception as e2:
+        print(f"❌ 模型加载失败 (路径 2: 容器绝对路径): {e2}")
+        
+    # 如果两个路径都失败，抛出致命错误
+    raise RuntimeError(f"致命错误：无法加载模型，请检查 Dockerfile COPY 路径是否正确。错误详情: {e2}")
 
 @app.get("/ping")
 def health_check():

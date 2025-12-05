@@ -16,9 +16,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir fastapi uvicorn pydantic scikit-learn joblib boto3 pandas numpy
 
-# 5. 复制核心代码 (Build Context 为项目根目录)
+# 5. 复制核心代码和模型文件 (Build Context 为项目根目录)
 COPY api/ api/
 COPY src/ src/
+
+# ⚠️ FIX: 复制模型和编码器文件到容器内的 /app 目录
+# 目标路径： /app/notebooks/best_model_extracted/
+COPY notebooks/best_model_extracted/ notebooks/best_model_extracted/
 
 # 6. 设置 SageMaker 标准环境变量
 # 修正：将模型路径设置为 SageMaker 运行时挂载的默认路径
