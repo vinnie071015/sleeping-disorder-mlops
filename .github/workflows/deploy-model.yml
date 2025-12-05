@@ -88,7 +88,7 @@ jobs:
           # 这样同学直接访问 http://IP 即可，不用加端口号
           docker run -d \
             --restart always \
-            -p 80:8000 \
+            -p 8000:8000 \
             --name $CONTAINER_NAME \
             $ECR_REGISTRY/$ECR_REPOSITORY:latest
             
