@@ -20,33 +20,47 @@ class SleepInput(BaseModel):
 
 # 2. 初始化 FastAPI 应用
 app = FastAPI(title="Sleep Disorder Prediction API")
-
 # 全局变量加载模型
 model_pipeline = None
 label_encoder = None
 
+# 【重要：统一模型路径变量名】
+# SageMaker 将模型挂载在 MODEL_DIR (即 /opt/ml/model)
+MODEL_DIR = os.getenv("MODEL_DIR", ".") 
+
 @app.on_event("startup")
 def load_artifacts():
     global model_pipeline, label_encoder
-    # 假设在 Docker 中模型位于 /opt/ml/model 目录
-    # 在本地测试时，请确保这两个文件在当前目录下或修改路径
-    model_path = os.getenv("MODEL_PATH", "model.joblib")
-    le_path = os.getenv("LE_PATH", "label_encoder.joblib")
+    
+    # 修正：直接使用 SageMaker 标准路径 (模型文件在 tarball 解压后)
+    MODEL_FILENAME = "model.joblib"
+    LE_FILENAME = "label_encoder.joblib"
+    
+    # 修正：使用统一的 MODEL_DIR 环境变量
+    model_path = os.path.join(MODEL_DIR, MODEL_FILENAME)
+    le_path = os.path.join(MODEL_DIR, LE_FILENAME)
     
     try:
-        model_pipeline = joblib.load(model_pipeline_path)
-        label_encoder = joblib.load(label_encoder_path)
-        print("✅ 模型加载成功")
+        model_pipeline = joblib.load(model_path)
+        label_encoder = joblib.load(le_path)
+        print("✅ 模型和编码器加载成功 (SageMaker 路径)")
     except Exception as e:
-        print(f"❌ 模型加载失败: {e}")
-        # 本地调试时的备用路径 (根据您的 notebook 结构)
+        # 如果从 /opt/ml/model 加载失败 (本地测试时会失败)
+        print(f"❌ 模型加载失败 (SageMaker 路径): {e}")
+
+        # 添加一个可靠的本地测试路径（使用你的文件树结构）
         try:
-            base_path = "../notebooks/best_model_extracted/"
+            # 你的模型文件在根目录下的 notebooks/best_model_extracted/
+            base_path = "notebooks/best_model_extracted/" 
+            
+            # 注意：这里不需要 '..'，因为构建上下文的根目录就是项目根目录
             model_pipeline = joblib.load(os.path.join(base_path, "model.joblib"))
             label_encoder = joblib.load(os.path.join(base_path, "label_encoder.joblib"))
-            print("✅ 模型加载成功 (本地调试路径)")
+            print("✅ 模型加载成功 (本地路径)")
         except Exception as e2:
             print(f"❌ 本地路径也加载失败: {e2}")
+            # 如果本地和 SageMaker 路径都失败，抛出错误
+            raise RuntimeError(f"无法加载模型，启动失败: {e2}")
 
 @app.get("/ping")
 def health_check():
