@@ -29,4 +29,4 @@ EXPOSE 8080
 
 # 8. 启动命令: 使用 uvicorn 启动 FastAPI 服务
 # 路径修正：确保 api.app:app 正确指向你的启动文件
-CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
