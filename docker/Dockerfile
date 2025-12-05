@@ -10,24 +10,19 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # 4. 复制依赖清单并安装
-# 修正：使用根目录下的 requirements.txt
 COPY requirements.txt .
-# 额外的库保持安装，但建议将它们也放入 requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir fastapi uvicorn pydantic scikit-learn joblib boto3 pandas numpy
+# -----------------------------------------------------------------------
+# ⚠️ FIX 1: 移除 COPY api/ api/ 的错误连接。仅保留 RUN pip install。
+RUN pip install --no-cache-dir -r requirements.txt
+# -----------------------------------------------------------------------
 
-# 5. 复制核心代码和模型文件 (Build Context 为项目根目录)
+# 5. 复制核心代码 (Build Context 为项目根目录)
+# ⚠️ FIX 2: 确保所有的 COPY 都是独立的指令
 COPY api/ api/
 COPY src/ src/
 
-# ⚠️ FIX: 复制模型和编码器文件到容器内的 /app 目录
-# 目标路径： /app/notebooks/best_model_extracted/
+# 6. 复制模型文件
 COPY notebooks/best_model_extracted/ notebooks/best_model_extracted/
-
-# 6. 设置 SageMaker 标准环境变量
-# 修正：将模型路径设置为 SageMaker 运行时挂载的默认路径
-ENV MODEL_DIR=/opt/ml/model
-ENV CODE_DIR=/app
 
 # 7. 暴露端口 (SageMaker 默认使用 8080)
 EXPOSE 8080
