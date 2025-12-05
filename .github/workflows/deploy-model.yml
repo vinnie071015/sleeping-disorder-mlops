@@ -1,73 +1,97 @@
-name: Build and Deploy to SageMaker
+name: Deploy to EC2
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches: [ "main" ]  # 当代码推送到 main 分支时触发
+  workflow_dispatch:      # 允许手动点击按钮触发
 
 env:
+  # 根据您的 Notebook 检查结果配置
+  AWS_REGION: us-east-1
   ECR_REPOSITORY: sleep-predictor
-  SAGEMAKER_ROLE: arn:aws:iam::137568342316:role/SageMakerExecutionRole
-  # 硬编码的模型数据路径 (仅供测试)
-  MODEL_DATA_URL: s3://sleep-disorder-mlops-bucket/sagemaker-tuning-output/svm-tuning-251203-2103-002-c8ccdacc/output/model.tar.gz
+  CONTAINER_NAME: sleep_app_container
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
 
     steps:
+    # --- 阶段 1: 检出代码 ---
     - name: Checkout code
       uses: actions/checkout@v3
 
+    # --- 阶段 2: 配置 AWS 权限 (用于构建镜像) ---
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
+        aws-region: ${{ env.AWS_REGION }}
 
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
-    - name: Build, tag, and push image to Amazon ECR
+    # --- 阶段 3: 构建并推送 Docker 镜像 ---
+    - name: Build and Push Docker Image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        # 使用 git commit sha 作为 tag，保证唯一性和可追溯性
-        IMAGE_TAG: ${{ github.sha }} 
+        IMAGE_TAG: ${{ github.sha }}
       run: |
-        echo "Building docker image..."
-        # 优化点：
-        # 1. -f docker/Dockerfile : 指定文件位置
-        # 2. --platform linux/amd64 : 确保兼容 SageMaker 运行环境
-        # 3. . : 保持 Context 为项目根目录
+        echo "正在构建镜像..."
+        # ⚠️ 关键：使用 --platform linux/amd64 以适配您的 EC2 (x86_64)
         docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f docker/Dockerfile .
         
-        echo "Pushing image to ECR..."
+        echo "打标签为 latest..."
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        echo "推送到 ECR..."
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        
-        # 将构建好的完整镜像地址写入环境变量，供下一步使用
-        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-    - name: Create SageMaker Model (Test with Public Image)
-      run: |
-        # 动态生成唯一的模型名称
-        TIMESTAMP=$(date +%Y%m%d-%H%M)
-        SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-        UNIQUE_MODEL_NAME="test-public-image-${TIMESTAMP}-${SHORT_SHA}"
-        
-        # 🚨 注意：这里硬编码了公共镜像 URI 进行测试
-        TEST_IMAGE_URI="public.ecr.aws/lts/pytorch/pytorch:1.13.1-cpu-py39"
-
-        echo "Creating SageMaker Model with Public Image: $TEST_IMAGE_URI"
-        
-        aws sagemaker create-model \
-          --model-name $UNIQUE_MODEL_NAME \
-          --execution-role-arn ${{ env.SAGEMAKER_ROLE }} \
-          --primary-container Image=$TEST_IMAGE_URI,ModelDataUrl=${{ env.MODEL_DATA_URL }} \
-          --region ${{ secrets.AWS_REGION }}
+    # --- 阶段 4: SSH 登录 EC2 并部署 ---
+    - name: Deploy to EC2 via SSH
+      uses: appleboy/ssh-action@v1.0.0
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+        AWS_REGION: ${{ env.AWS_REGION }}
+        CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        # 将环境变量传递给 SSH 脚本
+        envs: ECR_REGISTRY,ECR_REPOSITORY,AWS_REGION,CONTAINER_NAME
+        script: |
+          echo "Connected to EC2!"
           
-        echo "✅ Model created successfully: $UNIQUE_MODEL_NAME"
+          # 1. 在 EC2 内部登录 ECR 
+          # (利用 EC2 绑定的 IAM Role，不需要显式 AK/SK)
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+          
+          # 2. 拉取最新镜像
+          echo "Pulling latest image..."
+          docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          # 3. 停止旧容器 (如果存在)
+          echo "Stopping old container..."
+          docker stop $CONTAINER_NAME || true
+          docker rm $CONTAINER_NAME || true
+          
+          # 4. 启动新容器
+          echo "Starting new container..."
+          # -p 80:8000 -> 将 EC2 的 80 端口映射到容器的 8000 端口
+          # 这样同学直接访问 http://IP 即可，不用加端口号
+          docker run -d \
+            --restart always \
+            -p 80:8000 \
+            --name $CONTAINER_NAME \
+            $ECR_REGISTRY/$ECR_REPOSITORY:latest
+            
+          echo "✅ Deployment successful!"
+          # 清理未使用的旧镜像以节省磁盘空间
+          docker image prune -f
