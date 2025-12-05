@@ -50,22 +50,28 @@ def load_artifacts():
         print(f"❌ 模型加载失败 (路径 1: MODEL_DIR): {e}")
 
     # --------------------------------------------------------------------------
-    # ⚠️ FIX: 尝试从容器内部的绝对路径加载 (当使用 Docker run 时，模型在此处)
-    # --------------------------------------------------------------------------
-    try:
-        # 绝对路径: 从容器的根目录 /app 开始，匹配 Dockerfile 的 COPY 目标
-        # 路径为： /app/notebooks/best_model_extracted/
-        base_path = "/app/notebooks/best_model_extracted" 
+        # ⚠️ FIX: 尝试从容器内部的绝对路径加载 (当使用 Docker run 时，模型在此处)
+        # --------------------------------------------------------------------------
+        try:
+            # 绝对路径: 从容器的根目录 /app 开始，匹配 Dockerfile 的 COPY 目标
+            base_path = "/app/notebooks/best_model_extracted" 
+            
+            model_pipeline = joblib.load(os.path.join(base_path, "model.joblib"))
+            label_encoder = joblib.load(os.path.join(base_path, "label_encoder.joblib"))
+            print("✅ 模型加载成功 (路径 2: 容器绝对路径)")
+            return
+        except Exception as e2:
+            print(f"❌ 模型加载失败 (路径 2: 容器绝对路径): {e2}")
+            
+        # --------------------------------------------------------------------------
+        # ⚠️ 临时修改：注释掉致命错误，允许服务器启动，测试网络连通性
+        # --------------------------------------------------------------------------
+        # raise RuntimeError(f"致命错误：无法加载模型，启动失败: {e2}") # <- 将此行注释掉
         
-        model_pipeline = joblib.load(os.path.join(base_path, "model.joblib"))
-        label_encoder = joblib.load(os.path.join(base_path, "label_encoder.joblib"))
-        print("✅ 模型加载成功 (路径 2: 容器绝对路径)")
-        return
-    except Exception as e2:
-        print(f"❌ 模型加载失败 (路径 2: 容器绝对路径): {e2}")
-        
-    # 如果两个路径都失败，抛出致命错误
-    raise RuntimeError(f"致命错误：无法加载模型，请检查 Dockerfile COPY 路径是否正确。错误详情: {e2}")
+        global model_pipeline # 确保模型即使加载失败也能够被引用
+        model_pipeline = None 
+        print("⚠️ 警告：模型加载失败，但服务器将启动并回答 /ping 请求。")
+        return # 允许服务器继续启动
 
 @app.get("/ping")
 def health_check():
