@@ -2,78 +2,92 @@ import streamlit as st
 import requests
 import json
 
-# 设置页面标题
-st.set_page_config(page_title="睡眠障碍预测系统", page_icon="🌙")
+# Page Configuration
+st.set_page_config(page_title="Sleep Disorder Prediction System", page_icon="🌙", layout="centered")
 
-st.title("🌙 睡眠障碍智能诊断系统")
-st.markdown("请输入您的身体指标，模型将预测潜在的睡眠问题。")
+# Main Title and Description
+st.title("🌙 Sleep Disorder Diagnostic System")
+st.markdown("### Please enter your health metrics below to predict potential sleep disorders.")
+st.markdown("---")
 
-# --- 1. 左侧侧边栏：输入表单 ---
-with st.sidebar:
-    st.header("📋 患者信息录入")
-    
-    gender = st.selectbox("性别", ["Male", "Female"])
-    age = st.slider("年龄", 10, 90, 32)
-    occupation = st.selectbox("职业", [
+# --- Form Section (Moved to Main Area) ---
+st.header("📋 Patient Information")
+
+# Create two columns to organize the inputs better (User Experience Improvement)
+col1, col2 = st.columns(2)
+
+with col1:
+    gender = st.selectbox("Gender", ["Male", "Female"])
+    age = st.slider("Age", 10, 90, 32)
+    occupation = st.selectbox("Occupation", [
         "Software Engineer", "Doctor", "Sales Representative", "Teacher", 
         "Nurse", "Engineer", "Accountant", "Scientist", "Lawyer", 
         "Salesperson", "Manager"
     ])
-    sleep_duration = st.slider("睡眠时长 (小时)", 4.0, 10.0, 7.0, 0.1)
-    quality_of_sleep = st.slider("睡眠质量 (1-10)", 1, 10, 7)
-    physical_activity = st.slider("体力活动水平 (分钟/天)", 0, 100, 40)
-    stress_level = st.slider("压力等级 (1-10)", 1, 10, 5)
-    bmi_category = st.selectbox("BMI 类别", ["Normal", "Overweight", "Obese"])
-    blood_pressure = st.text_input("血压 (例如 120/80)", "120/80")
-    heart_rate = st.number_input("心率 (bpm)", 60, 120, 70)
-    daily_steps = st.number_input("每日步数", 0, 20000, 5000)
+    sleep_duration = st.slider("Sleep Duration (hours)", 4.0, 10.0, 7.0, 0.1)
+    quality_of_sleep = st.slider("Quality of Sleep (1-10)", 1, 10, 7)
+    physical_activity = st.slider("Physical Activity Level (mins/day)", 0, 100, 40)
 
-    # 构造发送给 API 的数据字典
-    input_data = {
-        "gender": gender,
-        "age": age,
-        "occupation": occupation,
-        "sleep_duration": sleep_duration,
-        "quality_of_sleep": quality_of_sleep,
-        "physical_activity_level": physical_activity,
-        "stress_level": stress_level,
-        "bmi_category": bmi_category,
-        "blood_pressure": blood_pressure,
-        "heart_rate": heart_rate,
-        "daily_steps": daily_steps
-    }
+with col2:
+    stress_level = st.slider("Stress Level (1-10)", 1, 10, 5)
+    bmi_category = st.selectbox("BMI Category", ["Normal", "Overweight", "Obese"])
+    blood_pressure = st.text_input("Blood Pressure (e.g., 120/80)", "120/80")
+    heart_rate = st.number_input("Heart Rate (bpm)", 60, 120, 70)
+    daily_steps = st.number_input("Daily Steps", 0, 20000, 5000)
 
-# --- 2. 主页面：预测按钮与结果展示 ---
-if st.button("🚀 开始预测", type="primary"):
-    with st.spinner("模型正在分析数据..."):
+# Construct the data dictionary for the API
+input_data = {
+    "gender": gender,
+    "age": age,
+    "occupation": occupation,
+    "sleep_duration": sleep_duration,
+    "quality_of_sleep": quality_of_sleep,
+    "physical_activity_level": physical_activity,
+    "stress_level": stress_level,
+    "bmi_category": bmi_category,
+    "blood_pressure": blood_pressure,
+    "heart_rate": heart_rate,
+    "daily_steps": daily_steps
+}
+
+st.markdown("---")
+
+# --- Prediction Section (Bottom) ---
+# Center the button using columns to make it look nicer
+_, mid_col, _ = st.columns([1, 2, 1])
+
+with mid_col:
+    predict_btn = st.button("🚀 Start Prediction", type="primary", use_container_width=True)
+
+if predict_btn:
+    with st.spinner("Model is analyzing data..."):
         try:
-            # 这里的 localhost 指的是容器内部，Streamlit 访问同容器内的 FastAPI
-            # 注意：在生产环境中，这通常指向 API 的服务名，但在单容器里 localhost 是通的
+            # Localhost refers to the container itself here
             api_url = "http://127.0.0.1:8000/invocations" 
             
             response = requests.post(api_url, json=input_data)
             
             if response.status_code == 200:
                 result = response.json()
-                prediction = result.get("prediction", "未知")
+                prediction = result.get("prediction", "Unknown")
                 
-                st.success("✅ 预测完成！")
+                st.success("✅ Prediction Complete!")
                 
-                # 美化结果展示
-                st.subheader(f"诊断结果: {prediction}")
+                # Display Results
+                st.subheader(f"Diagnostic Result: {prediction}")
                 
                 if prediction == "None":
-                    st.info("恭喜！未检测到明显的睡眠障碍风险。保持健康的生活习惯！Data from: Model")
+                    st.info("Congratulations! No significant sleep disorder risk detected. Keep up the healthy lifestyle! (Source: Model)")
                 elif prediction == "Insomnia":
-                    st.warning("⚠️ 警告：检测到失眠症 (Insomnia) 风险。建议咨询医生或改善作息。")
+                    st.warning("⚠️ Warning: Risk of Insomnia detected. It is recommended to consult a doctor or improve your sleep schedule.")
                 elif prediction == "Sleep Apnea":
-                    st.error("🚨 警告：检测到睡眠呼吸暂停 (Sleep Apnea) 风险。请尽快就医检查。")
+                    st.error("🚨 Warning: Risk of Sleep Apnea detected. Please seek medical attention as soon as possible.")
             else:
-                st.error(f"❌ 预测失败: {response.text}")
+                st.error(f"❌ Prediction Failed: {response.text}")
                 
         except Exception as e:
-            st.error(f"❌ 无法连接到后端服务: {e}")
+            st.error(f"❌ Unable to connect to backend service: {e}")
 
-# 页脚
+# Footer
 st.markdown("---")
 st.caption("Powered by MLOps Pipeline & Streamlit")
