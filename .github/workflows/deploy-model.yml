@@ -104,6 +104,7 @@ jobs:
           docker run -d \
             --restart always \
             -p 8000:8000 \
+            -p 8501:8501 \
             --name $CONTAINER_NAME \
             $ECR_REGISTRY/$ECR_REPOSITORY:latest
             

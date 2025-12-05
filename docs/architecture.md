@@ -78,6 +78,17 @@ graph TD
 4.  **部署**：SageMaker Endpoint 拉取 ECR 镜像 + S3 模型 → 启动 FastAPI
 5.  **推理**：用户 (Streamlit) → API Gateway → Endpoint → 返回预测结果
 
+前端架构：
+graph LR
+    subgraph "用户浏览器 (Client)"
+        User[用户] --> |访问网页 :8501| FE[Streamlit 前端页面]
+    end
+
+    subgraph "EC2 实例 (Docker 容器)"
+        FE --> |内部请求 http://localhost:8000| BE[FastAPI 后端接口]
+        BE --> |调用| Model[训练好的模型]
+    end
+
 ---
 
 ## 4. 实时部署状态 (Real-time Deployment Status)

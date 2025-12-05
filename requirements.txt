@@ -6,3 +6,5 @@ joblib
 boto3
 pandas
 numpy
+streamlit
+requests
