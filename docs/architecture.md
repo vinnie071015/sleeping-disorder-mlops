@@ -1,3 +1,5 @@
+Kaggle dataset used:
+https://www.kaggle.com/code/viniciusdiasx/predicting-sleep-disorders-with-machine-learning
 
 # MLOps 端到端架构与技术栈全景 (End-to-End Architecture & Tech Stack)
 
@@ -97,7 +99,7 @@ graph LR
 
 <!-- DEPLOYMENT_STATUS_START -->
 
-_最后一次运行时间: 2025-12-04 13:36:20_
+_最后一次运行时间: 2025-12-06 10:46:42_
 
 | 组件 (Component) | 状态 (Status) | 详情 (Details) |
 | :--- | :--- | :--- |

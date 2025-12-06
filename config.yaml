@@ -8,7 +8,7 @@ deployment_status:
   api_url: https://xyz123.execute-api.us-east-1.amazonaws.com/prod/predict
   frontend: Pending
   lambda_function: 'Failed (AWS Error: AccessDeniedException)'
-  last_run: '2025-12-04 13:36:20'
+  last_run: '2025-12-06 10:46:42'
   model_endpoint: 'Failed (AWS Error: ValidationException)'
   s3_bucket: Success
 frontend:
