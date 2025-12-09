@@ -69,11 +69,11 @@ if predict_btn:
             
             if response.status_code == 200:
                 result = response.json()
-                # 获取原始预测值 (Insomnia / Sleep Apnea / Missing)
+                # Get the raw prediction value (Insomnia / Sleep Apnea / Missing)
                 raw_prediction = result.get("prediction", "Unknown")
                 
-                # --- 修改逻辑：文案映射 ---
-                # 如果是 Missing 或 None，显示为 "Healthy"
+                # --- Modified Logic: Copywriting Mapping ---
+                # If it is Missing or None, display as "Healthy"
                 if raw_prediction == "Missing" or raw_prediction == "None":
                     display_text = "Healthy (No Disorder Detected)"
                     display_color = "green"
@@ -83,10 +83,10 @@ if predict_btn:
                 
                 st.success("✅ Prediction Complete!")
                 
-                # 使用自定义颜色的标题展示结果
+                # Display the result using a custom colored header
                 st.subheader(f"Diagnostic Result: :{display_color}[{display_text}]")
                 
-                # --- 详细建议 ---
+                # --- Detailed Advice ---
                 if raw_prediction == "Missing" or raw_prediction == "None":
                     st.info("Congratulations! No significant sleep disorder risk detected. Keep up the healthy lifestyle!")
                 elif raw_prediction == "Insomnia":

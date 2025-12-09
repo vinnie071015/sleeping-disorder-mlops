@@ -18,11 +18,11 @@ jobs:
       contents: read
 
     steps:
-    # --- 阶段 1: 检出代码 ---
+    # --- Phase 1: Checkout code ---
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # --- 阶段 2: 配置 AWS 权限 ---
+    # --- Phase 2: Configure AWS permissions ---
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
@@ -34,14 +34,14 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
-    # --- 阶段 3 (新): 清理 ECR 并推送新镜像 ---
+    # --- Phase 3 (New): Clean ECR and push new image ---
     - name: Clean ECR & Build Push Image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
-        echo "🧹 正在清理 ECR 中的旧镜像..."
-        # 获取所有没有 tag 的镜像 (untagged) 并删除
+        echo "🧹 Cleaning up old images in ECR..."
+        # Get all untagged images and delete them
         aws ecr list-images --repository-name $ECR_REPOSITORY --filter tagStatus=UNTAGGED --query 'imageIds[*]' --output json | \
         jq -r '.[].imageDigest' | while read digest; do
           if [ "$digest" != "null" ]; then
@@ -49,20 +49,20 @@ jobs:
           fi
         done
         
-        # (可选) 如果想更激进，只保留 latest，可以编写脚本删除除 latest 外的所有 tag。
-        # 但为了回滚安全，通常建议保留最近几个。上面的逻辑主要清理悬空(untagged)镜像。
+        # (Optional) If you want to be more aggressive and only keep latest, you can write a script to delete all tags except latest.
+        # But for rollback safety, it's usually recommended to keep the last few. The logic above mainly cleans up dangling (untagged) images.
 
-        echo "🏗️ 正在构建新镜像..."
+        echo "🏗️ Building new image..."
         docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f docker/Dockerfile .
         
-        echo "🏷️ 打标签为 latest..."
+        echo "🏷️ Tagging as latest..."
         docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
-        echo "🚀 推送到 ECR..."
+        echo "🚀 Pushing to ECR..."
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-    # --- 阶段 4: SSH 登录 EC2 并部署 ---
+    # --- Phase 4: SSH login to EC2 and deploy ---
     - name: Deploy to EC2 via SSH
       uses: appleboy/ssh-action@v1.0.0
       env:
@@ -78,29 +78,29 @@ jobs:
         script: |
           echo "Connected to EC2!"
           
-          # 1. 登录 ECR
+          # 1. Login to ECR
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
           
-          # --- 关键逻辑：彻底清理环境 ---
-          echo "🛑 1. 停止并删除旧容器..."
+          # --- Critical Logic: Thoroughly clean up environment ---
+          echo "🛑 1. Stopping and removing old container..."
           docker stop $CONTAINER_NAME 2>/dev/null || true
           docker rm $CONTAINER_NAME 2>/dev/null || true
           
-          echo "🧹 2. 检查 8000 端口占用..."
-          # 查找占用 8000 端口的进程 PID，如果有则杀死
+          echo "🧹 2. Checking for port 8000 occupation..."
+          # Find the PID of the process occupying port 8000, and kill it if found
           PID=$(sudo lsof -t -i:8000)
           if [ -n "$PID" ]; then
-            echo "发现端口 8000 被进程 $PID 占用，正在强制结束..."
+            echo "Found port 8000 occupied by process $PID, forcing termination..."
             sudo kill -9 $PID
           else
-            echo "端口 8000 干净可用。"
+            echo "Port 8000 is clean and available."
           fi
           
-          # --- 部署新环境 ---
-          echo "⬇️ 3. 拉取最新镜像..."
+          # --- Deploy new environment ---
+          echo "⬇️ 3. Pulling the latest image..."
           docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
           
-          echo "▶️ 4. 启动新容器..."
+          echo "▶️ 4. Starting new container..."
           docker run -d \
             --restart always \
             -p 8000:8000 \
@@ -108,7 +108,7 @@ jobs:
             --name $CONTAINER_NAME \
             $ECR_REGISTRY/$ECR_REPOSITORY:latest
             
-          echo "🗑️ 5. 清理 EC2 上的旧镜像 (dangling images)..."
+          echo "🗑️ 5. Cleaning up old images on EC2 (dangling images)..."
           docker image prune -f
           
-          echo "✅ 部署完成！"
+          echo "✅ Deployment complete!"

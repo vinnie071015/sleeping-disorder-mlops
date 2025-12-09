@@ -5,13 +5,13 @@ import sys
 import os
 import pytest
 
-# 确保能导入 src 目录下的模块
+# Ensure modules in the src directory can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.data_processor import clean_data
 
 def test_column_cleaning():
-    """测试列名是否被正确标准化（去除空格、转小写）"""
+    """Test if column names are correctly standardized (removing spaces, converting to lowercase)"""
     # Arrange
     mock_data = pd.DataFrame({
         'Person ID': [1],
@@ -28,7 +28,7 @@ def test_column_cleaning():
     assert 'BMI Category' not in cleaned_df.columns
 
 def test_bmi_category_normalization():
-    """测试 BMI 类别是否被统一 (Normal Weight -> Normal)"""
+    """Test if BMI categories are unified (Normal Weight -> Normal)"""
     # Arrange
     mock_data = pd.DataFrame({
         'BMI Category': ['Normal', 'Normal Weight', 'Obese']
@@ -44,31 +44,31 @@ def test_bmi_category_normalization():
     assert 'Obese' in unique_values
 
 def test_handles_missing_values():
-    """测试清洗函数能正确填充缺失值 (Imputation)"""
-    # Arrange: 模拟带有 NaN 值的输入
+    """Test if the cleaning function correctly imputes missing values (Imputation)"""
+    # Arrange: Simulate input with NaN values
     mock_data = pd.DataFrame({
         'Person ID': [1, 2],
-        'Sleep Duration': [8.0, float('nan')],  # 数值缺失 -> 应填中位数 (8.0)
-        'BMI Category': ['Normal Weight', None]  # 分类缺失 -> 应填 'Missing'
+        'Sleep Duration': [8.0, float('nan')],  # Numerical missing -> should be imputed with median (8.0)
+        'BMI Category': ['Normal Weight', None]  # Categorical missing -> should be imputed with 'Missing'
     })
     
     # Act
     cleaned_df = clean_data(mock_data)
     
     # Assert
-    # 1. 检查列名标准化
+    # 1. Check column name standardization
     assert 'person_id' in cleaned_df.columns
     
-    # 2. 检查数值填充: NaN 应该被填为 8.0 (因为 8.0 的中位数是 8.0)
-    # 现在的断言是：它不应该是 NaN
+    # 2. Check numerical imputation: NaN should be filled with 8.0 (since the median of 8.0 is 8.0)
+    # The current assertion is: it should not be NaN
     assert not pd.isna(cleaned_df.loc[1, 'sleep_duration'])
     assert cleaned_df.loc[1, 'sleep_duration'] == 8.0
     
-    # 3. 检查分类填充: None 应该被填为 'Missing'
+    # 3. Check categorical imputation: None should be filled with 'Missing'
     assert cleaned_df.loc[1, 'bmi_category'] == 'Missing'
 
 def test_handles_empty_input():
-    """测试函数收到 None 或空 DataFrame 时的安全退出机制。"""
+    """Test the function's safe exit mechanism when receiving None or an empty DataFrame."""
     # Arrange/Act
     result_none = clean_data(None)
     

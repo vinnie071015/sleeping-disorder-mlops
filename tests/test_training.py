@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pandas as pd
 import joblib
 
-# --- 新增：强制 W&B 离线，防止测试时报错 ---
+# --- New: Force W&B offline to prevent errors during testing ---
 os.environ["WANDB_MODE"] = "offline" 
 # ----------------------------------------
 
@@ -17,13 +17,13 @@ from src.train import main
 
 @pytest.fixture
 def mock_training_env(tmp_path):
-    # 模拟 SageMaker 目录结构
+    # Mock the SageMaker directory structure
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     model_dir = tmp_path / "model"
     model_dir.mkdir()
 
-    # 创建模拟数据
+    # Create mock data
     mock_data = pd.DataFrame({
         'Person ID': range(10),
         'Gender': ['Male', 'Female'] * 5,
@@ -44,7 +44,7 @@ def mock_training_env(tmp_path):
     mock_data.to_csv(file_path, index=False)
     return data_dir, model_dir
 
-# --- 测试 1: Logistic Regression ---
+# --- Test 1: Logistic Regression ---
 def test_train_smoke_lr(mock_training_env):
     data_dir, model_dir = mock_training_env
     test_args = [
@@ -55,7 +55,7 @@ def test_train_smoke_lr(mock_training_env):
         main()
     assert (model_dir / "model.joblib").exists()
 
-# --- 测试 2: SVM ---
+# --- Test 2: SVM ---
 def test_train_smoke_svm(mock_training_env):
     data_dir, model_dir = mock_training_env
     test_args = [
@@ -66,7 +66,7 @@ def test_train_smoke_svm(mock_training_env):
         main()
     assert (model_dir / "model.joblib").exists()
 
-# --- 测试 3: Random Forest ---
+# --- Test 3: Random Forest ---
 def test_train_smoke_rf(mock_training_env):
     data_dir, model_dir = mock_training_env
     test_args = [

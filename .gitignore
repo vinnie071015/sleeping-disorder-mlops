@@ -10,3 +10,5 @@ data/
 models/
 .DS_Store
 wandb/
+*.pem
+un_needed_files/

@@ -4,7 +4,7 @@ pydantic
 scikit-learn==1.4.0 
 joblib
 boto3
-pandas
-numpy
+pandas==2.2.0
+numpy==1.26.4
 streamlit
 requests
